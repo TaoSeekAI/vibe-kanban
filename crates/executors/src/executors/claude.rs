@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::Stdio, sync::Arc};
+use std::{collections::HashMap, env, path::PathBuf, process::Stdio, sync::Arc};
 
 use async_trait::async_trait;
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
@@ -125,6 +125,76 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         // Process stderr logs using the standard stderr processor
         normalize_stderr_logs(msg_store, entry_index_provider);
     }
+}
+
+/// Ensure child process inherits & normalizes Anthropic-related env vars.
+/// - Accept either ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (mirror to both names)
+/// - Pass through ANTHROPIC_BASE_URL (e.g. GLM's https://open.bigmodel.cn/api/anthropic)
+/// - Default ANTHROPIC_VERSION if missing (Anthropic CLI/SDK expect this header)
+fn inject_anthropic_env(cmd: &mut Command) {
+    // Start with inheriting all parent envs explicitly (robust across some platforms / service managers)
+    cmd.envs(std::env::vars());
+
+    let overrides = derive_anthropic_env_overrides();
+    for (k, v) in overrides {
+        cmd.env(k, v);
+    }
+}
+
+/// Compose env overrides map based on current process env.
+fn derive_anthropic_env_overrides() -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+
+    // Prefer official Anthropic variable name; fall back to AUTH_TOKEN or some vendor-specific names.
+    let api_key = env::var("ANTHROPIC_API_KEY")
+        .ok()
+        .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
+        .or_else(|| env::var("ZHIPU_API_KEY").ok())
+        .or_else(|| env::var("GLM_API_KEY").ok());
+
+    if let Some(key) = api_key {
+        // Mirror to both names for maximum compatibility across routers/wrappers.
+        out.push(("ANTHROPIC_API_KEY".into(), key.clone()));
+        out.push(("ANTHROPIC_AUTH_TOKEN".into(), key));
+    }
+
+    if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
+        out.push(("ANTHROPIC_BASE_URL".into(), base_url));
+    }
+
+    // Claude/Anthropic clients often require a version header; default if not provided.
+    if env::var("ANTHROPIC_VERSION").is_err() {
+        out.push(("ANTHROPIC_VERSION".into(), "2023-06-01".into()));
+    }
+
+    out
+}
+
+/// If ANTHROPIC_MODEL is set and the command line doesn't already include `--model`,
+/// append ` --model <value>` to the shell command string.
+/// (Per CLI reference, `--model` can set the session model non-interactively.)
+fn maybe_append_model_flag(command_str: &str) -> String {
+    if command_str.contains("--model") {
+        return command_str.to_string();
+    }
+    if let Ok(model) = env::var("ANTHROPIC_MODEL") {
+        if !model.trim().is_empty() {
+            // Safe append: add a space then --model flag
+            let mut s = String::with_capacity(command_str.len() + model.len() + 9);
+            s.push_str(command_str);
+            s.push_str(" --model ");
+            // best-effort: if model contains spaces, quote it
+            if model.contains(char::is_whitespace) {
+                s.push('"');
+                s.push_str(&model);
+                s.push('"');
+            } else {
+                s.push_str(&model);
+            }
+            return s;
+        }
+    }
+    command_str.to_string()
 }
 
 fn create_watchkill_script(command: &str) -> String {
