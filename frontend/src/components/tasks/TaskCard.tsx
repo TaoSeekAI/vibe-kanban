@@ -9,6 +9,7 @@ import {
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import {
   CheckCircle,
+  Copy,
   Edit,
   Loader2,
   MoreHorizontal,
@@ -25,6 +26,7 @@ interface TaskCardProps {
   status: string;
   onEdit: (task: Task) => void;
   onDelete: (taskId: string) => void;
+  onDuplicate?: (task: Task) => void;
   onViewDetails: (task: Task) => void;
   isFocused: boolean;
   tabIndex?: number;
@@ -36,6 +38,7 @@ export function TaskCard({
   status,
   onEdit,
   onDelete,
+  onDuplicate,
   onViewDetails,
   isFocused,
   tabIndex = -1,
@@ -75,70 +78,70 @@ export function TaskCard({
       forwardedRef={localRef}
       onKeyDown={handleKeyDown}
     >
-      <div className="space-y-2">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 pr-2">
-            <div className="mb-1">
-              <h4 className="font-medium text-sm break-words">{task.title}</h4>
-            </div>
-          </div>
-          <div className="flex items-center space-x-1">
-            {/* In Progress Spinner */}
-            {task.has_in_progress_attempt && (
-              <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-            )}
-            {/* Merged Indicator */}
-            {task.has_merged_attempt && (
-              <CheckCircle className="h-3 w-3 text-green-500" />
-            )}
-            {/* Failed Indicator */}
-            {task.last_attempt_failed && !task.has_merged_attempt && (
-              <XCircle className="h-3 w-3 text-red-500" />
-            )}
-            {/* Actions Menu */}
-            <div
-              onPointerDown={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 hover:bg-muted"
-                  >
-                    <MoreHorizontal className="h-3 w-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => onEdit(task)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
+      <div className="flex flex-1 gap-2 items-center min-w-0">
+        <h4 className="flex-1 min-w-0 line-clamp-2 font-light text-sm">
+          {task.title}
+        </h4>
+        <div className="flex items-center space-x-1">
+          {/* In Progress Spinner */}
+          {task.has_in_progress_attempt && (
+            <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+          )}
+          {/* Merged Indicator */}
+          {task.has_merged_attempt && (
+            <CheckCircle className="h-3 w-3 text-green-500" />
+          )}
+          {/* Failed Indicator */}
+          {task.last_attempt_failed && !task.has_merged_attempt && (
+            <XCircle className="h-3 w-3 text-destructive" />
+          )}
+          {/* Actions Menu */}
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 hover:bg-muted"
+                >
+                  <MoreHorizontal className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onEdit(task)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+                {onDuplicate && (
+                  <DropdownMenuItem onClick={() => onDuplicate(task)}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Duplicate
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => onDelete(task.id)}
-                    className="text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                )}
+                <DropdownMenuItem
+                  onClick={() => onDelete(task.id)}
+                  className="text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-        {task.description && (
-          <div>
-            <p className="text-xs text-muted-foreground break-words">
-              {task.description.length > 130
-                ? `${task.description.substring(0, 130)}...`
-                : task.description}
-            </p>
-          </div>
-        )}
       </div>
+      {task.description && (
+        <p className="flex-1 text-sm text-secondary-foreground break-words">
+          {task.description.length > 130
+            ? `${task.description.substring(0, 130)}...`
+            : task.description}
+        </p>
+      )}
     </KanbanCard>
   );
 }

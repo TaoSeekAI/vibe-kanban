@@ -13,6 +13,7 @@ import {
   useKeyboardShortcuts,
   useKanbanKeyboardNavigation,
 } from '@/lib/keyboard-shortcuts.ts';
+import { statusBoardColors, statusLabels } from '@/utils/status-labels';
 
 type Task = TaskWithAttemptStatus;
 
@@ -22,6 +23,7 @@ interface TaskKanbanBoardProps {
   onDragEnd: (event: DragEndEvent) => void;
   onEditTask: (task: Task) => void;
   onDeleteTask: (taskId: string) => void;
+  onDuplicateTask?: (task: Task) => void;
   onViewTaskDetails: (task: Task) => void;
   isPanelOpen: boolean;
 }
@@ -34,28 +36,13 @@ const allTaskStatuses: TaskStatus[] = [
   'cancelled',
 ];
 
-const statusLabels: Record<TaskStatus, string> = {
-  todo: 'To Do',
-  inprogress: 'In Progress',
-  inreview: 'In Review',
-  done: 'Done',
-  cancelled: 'Cancelled',
-};
-
-const statusBoardColors: Record<TaskStatus, string> = {
-  todo: 'hsl(var(--neutral))',
-  inprogress: 'hsl(var(--info))',
-  inreview: 'hsl(var(--warning))',
-  done: 'hsl(var(--success))',
-  cancelled: 'hsl(var(--destructive))',
-};
-
 function TaskKanbanBoard({
   tasks,
   searchQuery = '',
   onDragEnd,
   onEditTask,
   onDeleteTask,
+  onDuplicateTask,
   onViewTaskDetails,
   isPanelOpen,
 }: TaskKanbanBoardProps) {
@@ -165,6 +152,7 @@ function TaskKanbanBoard({
                 status={status}
                 onEdit={onEditTask}
                 onDelete={onDeleteTask}
+                onDuplicate={onDuplicateTask}
                 onViewDetails={onViewTaskDetails}
                 isFocused={focusedTaskId === task.id}
                 tabIndex={focusedTaskId === task.id ? 0 : -1}

@@ -1,7 +1,7 @@
 import { Diff as Diff, ThemeMode } from 'shared/types';
 import { DiffModeEnum, DiffView } from '@git-diff-view/react';
 import { generateDiffFile } from '@git-diff-view/file';
-import { useMemo, useContext } from 'react';
+import { useMemo } from 'react';
 import { useConfig } from '@/components/config-provider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { Button } from '@/components/ui/button';
@@ -14,15 +14,17 @@ import {
   PencilLine,
   Copy,
   Key,
+  ExternalLink,
 } from 'lucide-react';
 import '@/styles/diff-style-overrides.css';
-import { TaskSelectedAttemptContext } from '@/components/context/taskDetailsContext';
 import { attemptsApi } from '@/lib/api';
+import type { TaskAttempt } from 'shared/types';
 
 type Props = {
   diff: Diff;
   expanded: boolean;
   onToggle: () => void;
+  selectedAttempt: TaskAttempt | null;
 };
 
 function labelAndIcon(diff: Diff) {
@@ -37,9 +39,13 @@ function labelAndIcon(diff: Diff) {
   return { label: undefined as string | undefined, Icon: PencilLine };
 }
 
-export default function DiffCard({ diff, expanded, onToggle }: Props) {
+export default function DiffCard({
+  diff,
+  expanded,
+  onToggle,
+  selectedAttempt,
+}: Props) {
   const { config } = useConfig();
-  const { selectedAttempt } = useContext(TaskSelectedAttemptContext);
   const theme = config?.theme === ThemeMode.DARK ? 'dark' : 'light';
 
   const oldName = diff.oldPath || undefined;
@@ -160,21 +166,7 @@ export default function DiffCard({ diff, expanded, onToggle }: Props) {
           title="Open in IDE"
           disabled={diff.change === 'deleted'}
         >
-          {/* Reuse default icon size */}
-          <svg
-            viewBox="0 0 24 24"
-            className="h-3 w-3"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M14 2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8" />
-            <polyline points="14 2 20 2 20 8" />
-            <line x1="11" y1="13" x2="20" y2="4" />
-          </svg>
+          <ExternalLink className="h-3 w-3" aria-hidden />
         </Button>
       </div>
 
