@@ -1,4 +1,6 @@
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use db::models::execution_process::{ExecutionContext, ExecutionProcessStatus};
 use utils;
@@ -12,6 +14,10 @@ use crate::services::config::NotificationConfig;
 
 /// Cache for WSL root path from PowerShell
 static WSL_ROOT_PATH_CACHE: OnceLock<Option<String>> = OnceLock::new();
+
+/// Cache for DBus availability check on Linux
+static DBUS_AVAILABLE: AtomicBool = AtomicBool::new(true);
+static DBUS_CHECK_DONE: AtomicBool = AtomicBool::new(false);
 
 impl NotificationService {
     pub async fn notify_execution_halted(mut config: NotificationConfig, ctx: &ExecutionContext) {
@@ -139,24 +145,112 @@ impl NotificationService {
             .spawn();
     }
 
+    /// Check if DBus is available on Linux (cached check)
+    async fn check_dbus_available() -> bool {
+        // Return cached result if already checked
+        if DBUS_CHECK_DONE.load(Ordering::Relaxed) {
+            return DBUS_AVAILABLE.load(Ordering::Relaxed);
+        }
+        
+        // Check if DISABLE_DBUS_NOTIFICATIONS is set
+        if std::env::var("DISABLE_DBUS_NOTIFICATIONS").is_ok() {
+            tracing::info!("DBus notifications disabled via DISABLE_DBUS_NOTIFICATIONS environment variable");
+            DBUS_AVAILABLE.store(false, Ordering::Relaxed);
+            DBUS_CHECK_DONE.store(true, Ordering::Relaxed);
+            return false;
+        }
+        
+        // Try a quick DBus availability check with timeout
+        let check_result = tokio::time::timeout(
+            Duration::from_millis(500),
+            tokio::task::spawn_blocking(|| {
+                // Simple check: try to connect to session bus
+                match std::process::Command::new("dbus-send")
+                    .args(&[
+                        "--session",
+                        "--dest=org.freedesktop.DBus",
+                        "--type=method_call",
+                        "--print-reply",
+                        "/org/freedesktop/DBus",
+                        "org.freedesktop.DBus.GetId",
+                    ])
+                    .output()
+                {
+                    Ok(output) => output.status.success(),
+                    Err(_) => false,
+                }
+            })
+        ).await;
+        
+        let is_available = match check_result {
+            Ok(Ok(available)) => available,
+            Ok(Err(e)) => {
+                tracing::warn!("DBus check task failed: {}", e);
+                false
+            }
+            Err(_) => {
+                tracing::warn!("DBus check timed out - assuming unavailable");
+                false
+            }
+        };
+        
+        DBUS_AVAILABLE.store(is_available, Ordering::Relaxed);
+        DBUS_CHECK_DONE.store(true, Ordering::Relaxed);
+        
+        if !is_available {
+            tracing::info!("DBus not available - Linux desktop notifications will be skipped");
+        }
+        
+        is_available
+    }
+
     /// Send Linux notification using notify-rust
     async fn send_linux_notification(title: &str, message: &str) {
+        // Skip if DBus is not available
+        if !Self::check_dbus_available().await {
+            tracing::debug!("Skipping Linux notification - DBus not available");
+            return;
+        }
+        
         use notify_rust::Notification;
 
         let title = title.to_string();
         let message = message.to_string();
 
-        let _handle = tokio::task::spawn_blocking(move || {
-            if let Err(e) = Notification::new()
-                .summary(&title)
-                .body(&message)
-                .timeout(10000)
-                .show()
-            {
-                tracing::error!("Failed to send Linux notification: {}", e);
+        // Add timeout to prevent indefinite blocking
+        let notification_result = tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = Notification::new()
+                    .summary(&title)
+                    .body(&message)
+                    .timeout(10000)
+                    .show()
+                {
+                    tracing::error!("Failed to send Linux notification: {}", e);
+                    
+                    // If we get a DBus error, mark it as unavailable for future calls
+                    if e.to_string().contains("DBus") || e.to_string().contains("D-Bus") {
+                        DBUS_AVAILABLE.store(false, Ordering::Relaxed);
+                        tracing::info!("DBus appears to be unavailable - disabling future notification attempts");
+                    }
+                }
+            })
+        ).await;
+        
+        match notification_result {
+            Ok(Ok(_)) => {
+                // Success
             }
-        });
-        drop(_handle); // Don't await, fire-and-forget
+            Ok(Err(e)) => {
+                tracing::error!("Notification task panicked: {}", e);
+                DBUS_AVAILABLE.store(false, Ordering::Relaxed);
+            }
+            Err(_) => {
+                tracing::error!("Linux notification timed out after 2 seconds - possible DBus deadlock");
+                DBUS_AVAILABLE.store(false, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Send Windows/WSL notification using PowerShell toast script
